@@ -1399,7 +1399,9 @@ async def test_route_request_applies_override_fallbacks_when_request_carries_cre
 @pytest.mark.parametrize(
     "router_only_setting",
     [
-        pytest.param({"model_group_retry_policy": {"gpt-4": {"TimeoutErrorRetries": 1}}}, id="model-group-retry-policy"),
+        pytest.param(
+            {"model_group_retry_policy": {"gpt-4": {"TimeoutErrorRetries": 1}}}, id="model-group-retry-policy"
+        ),
         pytest.param({"context_window_fallbacks": [{"gpt-4": ["gpt-3.5-turbo"]}]}, id="context-window-fallbacks"),
         pytest.param({"content_policy_fallbacks": [{"gpt-4": ["gpt-3.5-turbo"]}]}, id="content-policy-fallbacks"),
     ],
@@ -2636,7 +2638,9 @@ async def test_a_user_config_adaptive_request_answers_with_the_model_it_picked()
                 },
                 {
                     **_mock_deployment("smart"),
-                    "model_info": {"adaptive_router_preferences": {"quality_tier": 3, "strengths": ["code_generation"]}},
+                    "model_info": {
+                        "adaptive_router_preferences": {"quality_tier": 3, "strengths": ["code_generation"]}
+                    },
                 },
             ]
         },
@@ -3092,3 +3096,47 @@ def test_fallback_probe_skips_only_a_loaded_model_that_refuses_the_route() -> No
     assert skipped("embed-only") is True
     assert skipped("chat-fallback") is False
     assert skipped("added-on-another-worker") is False
+
+
+def _router_answering_hi() -> "litellm.Router":
+    import litellm
+
+    return litellm.Router(
+        model_list=[{"model_name": "g", "litellm_params": {"model": "openai/gpt-5.4-nano", "mock_response": "hi"}}]
+    )
+
+
+@pytest.mark.parametrize("flag", ["stream", "background"])
+@pytest.mark.asyncio
+async def test_a_request_a_hook_made_stream_or_run_in_the_background_is_refused_under_a_body_total_timeout(
+    flag: str,
+):
+    from litellm.router_utils.total_deadline import TotalTimeoutNotApplicable, total_deadline
+
+    async with total_deadline(60, from_body=True):
+        with pytest.raises(TotalTimeoutNotApplicable):
+            await route_request(
+                data={"model": "g", "messages": [{"role": "user", "content": "hi"}], flag: True},
+                llm_router=_router_answering_hi(),
+                user_model=None,
+                route_type="acompletion",
+            )
+
+
+@pytest.mark.asyncio
+async def test_a_request_a_hook_turned_streaming_runs_unbounded_under_a_header_total_timeout():
+    from litellm.router_utils.total_deadline import current_total_deadline, total_deadline
+
+    async with total_deadline(60, from_body=False):
+        llm_call = await route_request(
+            data={"model": "g", "messages": [{"role": "user", "content": "hi"}], "stream": True},
+            llm_router=_router_answering_hi(),
+            user_model=None,
+            route_type="acompletion",
+        )
+        stream = await llm_call
+        chunks = [chunk async for chunk in stream]
+        deadline = current_total_deadline()
+
+    assert chunks
+    assert deadline is not None and deadline.allows_wait(10**9)

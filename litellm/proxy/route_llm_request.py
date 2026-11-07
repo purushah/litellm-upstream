@@ -21,6 +21,7 @@ from litellm.proxy._types import ProxyException, UserAPIKeyAuth
 from litellm.router import router_arguments
 from litellm.router_api import router_init_args
 from litellm.router_config import build_router_config
+from litellm.router_utils.total_deadline import enforce_total_timeout_scope
 
 # Client-supplied params that make the router or the call path fabricate a
 # failure or a delay instead of calling the provider. The ``mock_testing_*``
@@ -761,6 +762,7 @@ async def route_request(
     """
     Common helper to route the request
     """
+    enforce_total_timeout_scope(data)  # pyright: ignore[reportUnknownArgumentType]  # route_request takes an untyped dict body
     router_only_settings_from_override: Final = _merge_router_settings_override(data)  # pyright: ignore[reportUnknownArgumentType]  # route_request takes an untyped dict body
     try:
         return await _route_request_single_attempt(
